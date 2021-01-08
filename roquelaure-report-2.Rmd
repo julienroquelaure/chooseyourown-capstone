@@ -1,0 +1,485 @@
+---
+title: "Term Deposit Prediction"
+author: "Julien Roquelaure"
+date: "2021/01/07"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r  code = readLines("roquelaure-code-2.R"), echo=FALSE, warning=FALSE, message=FALSE, results="hide", fig.show="hide"}
+
+```
+
+# Introduction
+
+The data set is extracted from the UCI Machine Learning Repository.
+
+The data is about marketing campaigns made by a Portuguese banking 
+institution.
+The classification goal is to predict if phone calls will result in a client
+subscribing a term deposit.
+
+The data is comprised of 41188 instances of 20 input variables and 1 output
+variable.
+
+The input data is as follows:
+
+7 variables about the client:
+
+  - _age_: integer
+  - _job_: type of job among 12 categories
+  - _marital_: 4 categories of marital status
+  - _education_: 8 categories
+  - _default_: client has credit in default? yes/no/unknown 
+  - _housing_: client has housing loan? yes/no/unknown
+  - _loan_: client has personal loan? yes/no/unknown
+
+4 variables about the last contact of the current campaign:
+
+  - _contact_: 2 categories of phone
+  - _month_: 12 months
+  - _day_of_week_: 5 working days
+  - _duration_: duration of the call
+
+4 variables about campaigns:
+
+  - _campaign_: number of calls made to the client during the current campaign
+  - _pdays_: interval in days between previous campaign and last campaign,
+  999 meaning no previous contact
+  - _previous_: number of calls during the previous campaign
+  - _poutcome_: 3 categories of outcome for previous campaign
+
+5 social and economic variables:
+
+  - _emp.var.rate_: employment variation rate (quarterly)
+  - _cons.price.idx_: consumer price index (monthly)
+  - _cons.conf.idx_: consumer confidence index (monthly)
+  - _euribor3m_: euribor 3 months rate (daily)
+  - _nr.employed_: number of employees of the company (quarterly)
+  
+There is also 1 output variable:
+
+  - y: client has subscribed a term deposit? yes/no
+
+# Analysis
+
+We have 20 variables. So our first decision is to analyze them one by one.
+And after that, we are going to perform a linear regression and see if we
+were right about our decision of discarding the variables.
+
+## Age
+
+```{r}
+calls_train %>%
+  ggplot(aes(age, fill=as.factor(y))) +
+  geom_bar()
+age_structure <-calls_train %>%
+  group_by(age) %>%
+  summarize(n=n(), share = sum(y=="yes") / (sum(y=="yes")+sum(y=="no")))
+age_structure %>% 
+  ggplot(aes(x=age, y=share)) + geom_line()
+age_structure %>% 
+  ggplot(aes(x=age, y=n)) + geom_line()
+```
+
+The high and low values predict high subscription rate. But their counts are
+very low. So we will normalize them with a square distance to the mean, but
+we will expect to discard it in the end.
+
+## Job
+
+```{r}
+calls_train %>%
+  ggplot(aes(job, fill=as.factor(y))) +
+  geom_bar()
+calls_train %>%
+  group_by(job) %>%
+  summarize(share = sum(y=="yes") / (sum(y=="yes")+sum(y=="no")))
+```
+
+We see high rates for students and retired, which is expected from the age 
+variable. There is no clear pattern among the categories and we found no
+satisfying way of converting it into a numerical variable so we will
+just use admin.? yes/no as a binary variable but we don't expect much.
+
+
+## Marital
+
+```{r}
+calls_train %>%
+  ggplot(aes(marital, fill=as.factor(y))) +
+  geom_bar()
+calls_train %>%
+  group_by(marital) %>%
+  summarize(share = sum(y=="yes") / (sum(y=="yes")+sum(y=="no")))
+```
+
+Given the small number of unknowns, we will consider a binary variable 
+single? yes/no.
+
+## Education
+
+```{r}
+calls_train %>%
+  ggplot(aes(education, fill=as.factor(y))) +
+  geom_bar()
+calls_train %>%
+  group_by(education) %>%
+  summarize(share = sum(y=="yes") / (sum(y=="yes")+sum(y=="no")))
+```
+
+The number of illiterates is very small and there seems to be no pattern.
+We will binarize university.degree? yes/no with no expectation.
+
+## Default
+
+```{r}
+calls_train %>%
+  ggplot(aes(default, fill=as.factor(y))) +
+  geom_bar()
+sum(calls$default == "yes")
+calls_train %>%
+  group_by(default) %>%
+  summarize(share = sum(y=="yes") / (sum(y=="yes")+sum(y=="no")))
+
+```
+The number of "yes" is only 3. We decide to binarize the variable with "no" = 0
+and "unknown"/"yes" = 1
+
+## Housing
+
+```{r}
+calls_train %>%
+  ggplot(aes(housing, fill=as.factor(y))) +
+  geom_bar()
+calls_train %>%
+  group_by(housing) %>%
+  summarize(share = sum(y=="yes") / (sum(y=="yes")+sum(y=="no")))
+
+```
+Nothing remarkable, we binarize.
+
+## Loan
+
+```{r}
+calls_train %>%
+  ggplot(aes(loan, fill=as.factor(y))) +
+  geom_bar()
+calls_train %>%
+  group_by(loan) %>%
+  summarize(share = sum(y=="yes") / (sum(y=="yes")+sum(y=="no")))
+```
+
+Nothing remarkable, we binarize.
+
+## Contact
+
+```{r}
+calls_train %>%
+  ggplot(aes(contact, fill=as.factor(y))) +
+  geom_bar()
+calls_train %>%
+  group_by(contact) %>%
+  summarize(share = sum(y=="yes") / (sum(y=="yes")+sum(y=="no")))
+```
+
+Here, interestingly we see that people with cellular phones have a higher 
+probability of subscription than people with regular phones: .148 vs .051.
+Therefore we will expect a binary variable cellular? yes/no to be
+significant.
+
+## Month
+
+```{r}
+calls_train %>%
+  ggplot(aes(month, fill=as.factor(y))) +
+  geom_bar()
+calls_train %>%
+  group_by(month) %>%
+  summarize(share = sum(y=="yes") / (sum(y=="yes")+sum(y=="no")))
+```
+
+We notice that months with small counts: March, September, October, December,
+see more subscriptions. It may not be significant.
+
+## Day of week
+
+```{r}
+calls_train %>%
+  ggplot(aes(day_of_week, fill=as.factor(y))) +
+  geom_bar()
+calls_train %>%
+  group_by(day_of_week) %>%
+  summarize(share = sum(y=="yes") / (sum(y=="yes")+sum(y=="no")))
+
+```
+Nothing remarkable.
+
+
+## Duration
+
+```{r}
+calls_train %>%
+  ggplot(aes(duration, fill=as.factor(y))) +
+  geom_bar()
+duration_structure <- calls_train %>%
+  mutate(interval = (duration - duration%%60)/60) %>%
+  group_by(interval) %>%
+  summarize(share = sum(y=="yes") / (sum(y=="yes")+sum(y=="no")))
+duration_structure %>% 
+  ggplot(aes(x=(interval), y=share)) + geom_line()
+
+
+```
+The number of values for this variable was too high so we decided to group it
+in minute intervals. We can see an increase of subscriptions up to 20 
+minutes and then the small number of values make the fluctuations hard to
+interpret.
+
+## Campaign
+
+```{r}
+calls_train %>%
+  ggplot(aes(campaign, fill=as.factor(y))) +
+  geom_bar() 
+campaign_structure <- calls_train %>%
+  group_by(campaign) %>%
+  summarize(share = sum(y=="yes") / (sum(y=="yes")+sum(y=="no")))
+campaign_structure %>% 
+  ggplot(aes(x=(campaign), y=share)) + geom_line()
+
+```
+
+The subscription rate seem to decrease with the number of campaign calls.
+
+## Pdays
+
+```{r}
+calls_train %>%
+  ggplot(aes(pdays, fill=as.factor(y))) +
+  geom_bar() 
+pdays_structure <- calls_train %>%
+  filter(pdays<999) %>%
+  group_by(pdays) %>%
+  summarize(share = sum(y=="yes") / (sum(y=="yes")+sum(y=="no")))
+pdays_structure %>% 
+  ggplot(aes(x=(pdays), y=share)) + geom_line()
+```
+
+If we neglect the extreme value of 999, there doesn't seem to be a pattern.
+
+
+## Previous
+
+```{r}
+calls_train %>%
+  ggplot(aes(previous, fill=as.factor(y))) +
+  geom_bar() 
+calls_train %>%
+  group_by(previous) %>%
+  summarize(share = sum(y=="yes") / (sum(y=="yes")+sum(y=="no")))
+
+```
+
+The previous number of calls before the campaign seems to matter if it differs 
+than zero, but the counts are small.
+
+## Poutcome
+
+```{r}
+calls_train %>%
+  ggplot(aes(poutcome, fill=as.factor(y))) +
+  geom_bar() 
+calls_train %>%
+  group_by(poutcome) %>%
+  summarize(share = sum(y=="yes") / (sum(y=="yes")+sum(y=="no")))
+
+```
+We see something interesting: if a previous call has been a "success", we have
+a .651 probability of another subscription. Even a previous "failure" gives
+a better outcome than "nonexistent": .145 vs .088 .
+
+## Emp.var.rate
+
+```{r}
+calls_train %>%
+  ggplot(aes(emp.var.rate, fill=as.factor(y))) +
+  geom_bar() 
+calls_train %>%
+  group_by(emp.var.rate) %>%
+  summarize(share = sum(y=="yes") / (sum(y=="yes")+sum(y=="no")))
+
+
+```
+
+We see that decrease in employment variation rate seems to engender more
+subscriptions.
+
+## Cons.price.idx
+
+```{r}
+calls_train %>%
+  ggplot(aes(cons.price.idx, fill=as.factor(y))) +
+  geom_bar() 
+calls_train %>%
+  group_by(cons.price.idx) %>%
+  summarize(share = sum(y=="yes") / (sum(y=="yes")+sum(y=="no"))) %>% 
+  ggplot(aes(x=(cons.price.idx), y=share)) + geom_line()
+
+
+
+```
+There is no convincing pattern here.
+
+## Cons.conf.idx
+
+```{r}
+calls_train %>%
+  ggplot(aes(cons.conf.idx, fill=as.factor(y))) +
+  geom_bar() 
+calls_train %>%
+  group_by(cons.conf.idx) %>%
+  summarize(share = sum(y=="yes") / (sum(y=="yes")+sum(y=="no"))) %>% 
+  ggplot(aes(x=(cons.conf.idx), y=share)) + geom_line()
+
+```
+Again, no convincing pattern.
+
+## Euribor3m
+
+```{r}
+calls_train %>%
+  ggplot(aes(euribor3m, fill=as.factor(y))) +
+  geom_bar() 
+calls_train %>%
+  group_by(euribor3m) %>%
+  summarize(share = sum(y=="yes") / (sum(y=="yes")+sum(y=="no"))) %>% 
+  ggplot(aes(x=(euribor3m), y=share)) + geom_line()
+
+```
+Nothing to see here it seems.
+
+## Nr.employed
+
+```{r}
+calls_train %>%
+  ggplot(aes(nr.employed, fill=as.factor(y))) +
+  geom_bar() 
+calls_train %>%
+  group_by(nr.employed) %>%
+  summarize(share = sum(y=="yes") / (sum(y=="yes")+sum(y=="no")))
+
+```
+Nothing to see there.
+
+
+# Results
+
+## Linear model with the 20 variables
+
+We train our model with a _glm_ method on all variables to see what variables 
+we would like to keep for most computing intensive methods.
+
+```{r}
+calls_norm_train <- calls_norm[-test_index,]
+calls_norm_test <- calls_norm[test_index,]
+x_train <- calls_norm_train %>%
+  select(-y)
+y_train <- as.numeric(calls_norm_train$y)
+x_test <- calls_norm_test %>%
+  select(-y)
+y_test <- as.numeric(calls_norm_test$y)
+
+
+train_glm <- train(x_train, y_train, method="glm")
+predict_glm <- predict(train_glm, x_test)
+predict_glm_bin <- ifelse(predict_glm >.5, 1, 0)
+mean(predict_glm_bin == y_test)
+train_glm$finalModel
+
+```
+We predict a subscription $y=1$ when our predicted output is $>.5$.
+We interpret our output as the probability of subscription and therefore
+We predict $y=0$ or $y=1$ as the output is $y_hat <= .5$ or $y_hat > .5$.
+
+Our accuracy is $91%$.
+
+## Linear model with 5 variables
+
+We inspect the parameters of our previous model and see that 5 variables seem
+to influence the most the output. Remember that all our variables have been
+normalized or binarized so we expect the coefficients to reflect the
+importance of the parameter in question.
+
+Our 5 variables of choice are :
+
+ - _contact_ : we already predicted the importance of the variable due to the 
+ obvious difference between cellular and regular phone call.
+ - _duration_ : again, it is expected that a longer phone call correlates
+ with an interested customer.
+ - _pdays_ : given that there seems to be no pattern in this variable except
+ for the _999_ value, we decided to put this value in binary and it seems
+ to be a good predictor.
+ - _poutcome_ : it was seen in the data that a previous _success_ is highly
+ predictive of a new one, we decided to clump _failure_ and _nonexistent_
+ together as 0 as it was not clear how to quantify a priori the difference 
+ between _success_, _failure_, and _nonexistent_.
+ - _emp.var.rate_ : it is the most influential socio-economic parameter.
+ 
+```{r}
+calls_norm_train <- calls_norm_train %>%
+  select(contact, duration, pdays, poutcome, emp.var.rate,  y)
+x_train <- calls_norm_train %>%
+  select(-y)
+y_train <- as.numeric(calls_norm_train$y)
+x_test <- calls_norm_test %>%
+  select(-y)
+y_test <- as.numeric(calls_norm_test$y)
+
+
+train_glm <- train(x_train, y_train, method="glm")
+predict_glm <- predict(train_glm, x_test)
+predict_glm_bin <- ifelse(predict_glm >.5, 1, 0)
+mean(predict_glm_bin == y_test)
+
+ 
+```
+ 
+With 4 times less variables, we still get a good accuracy of $90.5%$.
+We will use these for the next model.
+ 
+ 
+## K nearest neighbors model
+
+```{r} 
+train_knn <- train(x_train, y_train, method="knn",
+                   tuneGrid = data.frame(k = 100))
+predict_knn <- predict(train_knn, x_test)
+predict_knn_bin <- ifelse(predict_knn >.5, 1, 0)
+mean(predict_knn_bin == y_test)
+```
+
+We used different $k$ during the simulations, and end up with an 
+accuracy of $90.6%$. The code is in the comments in order to shorten the
+compilation time.
+
+
+# Conclusion
+
+With the data tools we had in hand, we have been able to perform with
+a good accuracy on the test set.
+
+We detected 5 variables that seem to be relevant to whether our calls will
+result in a subscription.
+
+The _knn_ method did not perform better than the linear regression
+unfortunately.
+
+One can wonder if, with more computing power, we could fine tuned better
+models to our data and give realistic predictions.
+
+
